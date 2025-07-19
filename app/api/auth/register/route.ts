@@ -16,9 +16,9 @@ async function sendVerificationEmail(user: { _id: any; email: string; name?: str
     <p>O link expira em 5 minutos.</p>
   `
   const requestBody = {
-    sender: { name: "SocializeNow", email: "eliobrostech@topaziocoin.online" },
+    sender: { name: "MozHost", email: "eliobrostech@topaziocoin.online" },
     to: [{ email: user.email, name: user.name || "Usuário" }],
-    subject: "Verifique seu e-mail - SocializeNow",
+    subject: "Verifique seu e-mail - MozHost",
     htmlContent: emailBody,
     textContent: `Verifique seu e-mail com este link: ${verificationLink} (expira em 5 minutos).`,
   }
