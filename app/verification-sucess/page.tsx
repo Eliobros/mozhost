@@ -1,45 +1,44 @@
 "use client"
 
-import { useSearchParams, useRouter } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
+import { Suspense } from "react"
 
-export default function VerifiedSuccess() {
+function VerifiedSuccessInner() {
   const searchParams = useSearchParams()
-  const router = useRouter()
   const status = searchParams.get("status")
-
   const [message, setMessage] = useState("")
 
   useEffect(() => {
     switch (status) {
       case "success":
-        setMessage("🎉 Seu e-mail foi verificado com sucesso! Agora você pode usar sua conta normalmente.")
+        setMessage("🎉 Seu e-mail foi verificado com sucesso!")
         break
       case "already-verified":
-        setMessage("✅ Seu e-mail já estava verificado. Obrigado por confirmar novamente!")
+        setMessage("✅ Seu e-mail já estava verificado.")
         break
       case "error":
       default:
-        setMessage("❌ Ocorreu um erro na verificação do seu e-mail. Por favor, tente novamente ou solicite um novo link.")
+        setMessage("❌ Erro na verificação. Link inválido ou expirado.")
         break
     }
   }, [status])
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gray-50">
-      <div className="max-w-md w-full bg-white rounded-lg shadow p-6 text-center">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-gray-100 p-4">
+      <div className="bg-white p-6 rounded shadow text-center">
         <h1 className="text-2xl font-bold mb-4">Verificação de E-mail</h1>
-        <p className="text-gray-700">{message}</p>
-
-        {status === "error" && (
-          <button
-            onClick={() => router.push("/resend-verification")} // ou para onde quiser
-            className="mt-6 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-          >
-            Solicitar novo link de verificação
-          </button>
-        )}
+        <p>{message}</p>
       </div>
     </main>
+  )
+}
+
+// Componente exportado com suspense (obrigatório no app router para evitar erro  ⨯ useSearchParams())
+export default function VerifiedSuccessPageWrapper() {
+  return (
+    <Suspense fallback={<div className="text-center p-4">Carregando...</div>}>
+      <VerifiedSuccessInner />
+    </Suspense>
   )
 }
