@@ -33,6 +33,7 @@ export async function GET(req: Request) {
     }
 
     user.verified = true
+    user.coins = 250 // ✅ Aqui damos os coins de boas-vindas!
     await user.save()
 
     return NextResponse.redirect(new URL("/verification-success?status=success", req.url))
