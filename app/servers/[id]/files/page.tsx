@@ -8,30 +8,20 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-import { Input } from "@/components/ui/input" // Importar Input
-import { Label } from "@/components/ui/label" // Importar Label
 import { useToast } from "@/hooks/use-toast"
 import {
   FolderIcon,
   FileIcon,
   ArrowLeftIcon,
   SaveIcon,
-  PlusIcon,
-  UploadIcon,
   MoreHorizontalIcon,
+  PlusIcon,
+  DownloadIcon,
   Trash2Icon,
   EditIcon,
-  DownloadIcon,
+  TerminalIcon,
 } from "lucide-react"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter, // Importar DialogFooter
-} from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,9 +31,18 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { ServerTerminal } from "@/components/server-terminal" // Importar o componente do terminal
 
 interface FileEntry {
   name: string
@@ -51,11 +50,11 @@ interface FileEntry {
   isFile: boolean
 }
 
-interface FileContent {
+interface ServerDetails {
+  _id: string
   name: string
-  isFile: boolean
-  isDirectory: boolean
-  content?: string
+  dockerContainerId?: string
+  // Adicione outras propriedades do servidor se necessário
 }
 
 export default function ServerFilesPage() {
@@ -70,15 +69,55 @@ export default function ServerFilesPage() {
   const [selectedFileContent, setSelectedFileContent] = useState<string | undefined>(undefined)
   const [selectedFileName, setSelectedFileName] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState(false)
+  const [serverDetails, setServerDetails] = useState<ServerDetails | null>(null) // Estado para detalhes do servidor
 
-  // State para modais de ação
+  // Dialog states
   const [isCreateFolderDialogOpen, setIsCreateFolderDialogOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState("")
   const [isRenaming, setIsRenaming] = useState(false)
-  const [renameOldName, setRenameOldName] = useState("")
-  const [renameNewName, setRenameNewName] = useState("")
+  const [oldNameForRename, setOldNameForRename] = useState("")
+  const [newNameForRename, setNewNameForRename] = useState("")
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [fileToDelete, setFileToDelete] = useState<FileEntry | null>(null)
+  const [itemToDelete, setItemToDelete] = useState<FileEntry | null>(null)
+  const [isTerminalDialogOpen, setIsTerminalDialogOpen] = useState(false) // Estado para o dialog do terminal
+
+  // Função para buscar detalhes do servidor (incluindo dockerContainerId)
+  const fetchServerDetails = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/servers/list`) // Reutiliza a API de listagem, mas filtra pelo ID
+      if (res.ok) {
+        const data = await res.json()
+        const foundServer = data.servers.find((s: ServerDetails) => s._id === serverId)
+        if (foundServer) {
+          setServerDetails(foundServer)
+        } else {
+          toast({
+            title: "Erro",
+            description: "Servidor não encontrado.",
+            variant: "destructive",
+          })
+          router.push("/servers") // Redireciona se o servidor não for encontrado
+        }
+      } else {
+        const errorData = await res.json()
+        toast({
+          title: "Erro ao carregar detalhes do servidor",
+          description: errorData.error || "Não foi possível carregar os detalhes do servidor.",
+          variant: "destructive",
+        })
+        if (res.status === 401) {
+          router.push("/login")
+        }
+      }
+    } catch (error) {
+      console.error("Erro de rede ao carregar detalhes do servidor:", error)
+      toast({
+        title: "Erro",
+        description: "Não foi possível conectar ao servidor para carregar detalhes.",
+        variant: "destructive",
+      })
+    }
+  }, [serverId, router, toast])
 
   const fetchFiles = useCallback(
     async (path: string) => {
@@ -125,9 +164,10 @@ export default function ServerFilesPage() {
 
   useEffect(() => {
     if (serverId) {
+      fetchServerDetails() // Busca os detalhes do servidor ao carregar a página
       fetchFiles("") // Carrega o diretório raiz ao montar
     }
-  }, [serverId, fetchFiles])
+  }, [serverId, fetchFiles, fetchServerDetails])
 
   const handleFileClick = (file: FileEntry) => {
     const newPath = currentPath ? `${currentPath}/${file.name}` : file.name
@@ -201,169 +241,148 @@ export default function ServerFilesPage() {
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newFolderName.trim()) {
-      toast({
-        title: "Erro",
-        description: "O nome da pasta não pode estar vazio.",
-        variant: "destructive",
-      })
+      toast({ title: "Erro", description: "O nome da pasta não pode ser vazio.", variant: "destructive" })
       return
     }
 
-    setSaving(true) // Reutilizando o state de saving para operações de arquivo
+    const fullNewPath = currentPath ? `${currentPath}/${newFolderName}` : newFolderName
+
     try {
-      const fullPath = currentPath ? `${currentPath}/${newFolderName}` : newFolderName
       const res = await fetch(`/api/servers/${serverId}/files/create-directory`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ path: fullPath }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: fullNewPath }),
       })
 
       const data = await res.json()
-
       if (res.ok) {
-        toast({
-          title: "Sucesso!",
-          description: data.message,
-          variant: "default",
-        })
-        setNewFolderName("")
+        toast({ title: "Sucesso!", description: data.message, variant: "default" })
         setIsCreateFolderDialogOpen(false)
-        fetchFiles(currentPath) // Recarregar a lista de arquivos
+        setNewFolderName("")
+        fetchFiles(currentPath) // Recarregar a lista
       } else {
-        toast({
-          title: "Erro ao criar pasta",
-          description: data.error || "Ocorreu um erro inesperado.",
-          variant: "destructive",
-        })
+        toast({ title: "Erro", description: data.error || "Falha ao criar pasta.", variant: "destructive" })
       }
     } catch (error) {
-      console.error("Erro de rede ao criar pasta:", error)
-      toast({
-        title: "Erro",
-        description: "Não foi possível conectar ao servidor para criar a pasta.",
-        variant: "destructive",
-      })
-    } finally {
-      setSaving(false)
+      console.error("Erro ao criar pasta:", error)
+      toast({ title: "Erro", description: "Erro de rede ao criar pasta.", variant: "destructive" })
     }
   }
 
-  const handleDeleteFile = async () => {
-    if (!fileToDelete) return
-
-    setSaving(true)
-    try {
-      const fullPath = currentPath ? `${currentPath}/${fileToDelete.name}` : fileToDelete.name
-      const res = await fetch(`/api/servers/${serverId}/files/delete?path=${encodeURIComponent(fullPath)}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      })
-
-      const data = await res.json()
-
-      if (res.ok) {
-        toast({
-          title: "Sucesso!",
-          description: data.message,
-          variant: "default",
-        })
-        setIsDeleteDialogOpen(false)
-        setFileToDelete(null)
-        fetchFiles(currentPath) // Recarregar a lista de arquivos
-      } else {
-        toast({
-          title: "Erro ao deletar",
-          description: data.error || "Ocorreu um erro inesperado.",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      console.error("Erro de rede ao deletar:", error)
-      toast({
-        title: "Erro",
-        description: "Não foi possível conectar ao servidor para deletar.",
-        variant: "destructive",
-      })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleRenameFile = async (e: React.FormEvent) => {
+  const handleCreateFile = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!renameNewName.trim()) {
-      toast({
-        title: "Erro",
-        description: "O novo nome não pode estar vazio.",
-        variant: "destructive",
-      })
+    if (!newFolderName.trim()) {
+      // Reusing newFolderName state for new file name
+      toast({ title: "Erro", description: "O nome do arquivo não pode ser vazio.", variant: "destructive" })
       return
     }
 
-    setSaving(true)
+    const fullNewPath = currentPath ? `${currentPath}/${newFolderName}` : newFolderName
+
     try {
-      const fullOldPath = currentPath ? `${currentPath}/${renameOldName}` : renameOldName
-      const fullNewPath = currentPath ? `${currentPath}/${renameNewName}` : renameNewName
+      const res = await fetch(`/api/servers/${serverId}/files/create-file`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: fullNewPath }),
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        toast({ title: "Sucesso!", description: data.message, variant: "default" })
+        setIsCreateFolderDialogOpen(false) // Close the same dialog used for folder
+        setNewFolderName("")
+        fetchFiles(fullNewPath) // Open the newly created file for editing
+      } else {
+        toast({ title: "Erro", description: data.error || "Falha ao criar arquivo.", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error("Erro ao criar arquivo:", error)
+      toast({ title: "Erro", description: "Erro de rede ao criar arquivo.", variant: "destructive" })
+    }
+  }
+
+  const handleDeleteItem = async () => {
+    if (!itemToDelete) return
+
+    const fullPathToDelete = currentPath ? `${currentPath}/${itemToDelete.name}` : itemToDelete.name
+
+    try {
+      const res = await fetch(`/api/servers/${serverId}/files/delete?path=${encodeURIComponent(fullPathToDelete)}`, {
+        method: "DELETE",
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        toast({ title: "Sucesso!", description: data.message, variant: "default" })
+        setIsDeleteDialogOpen(false)
+        setItemToDelete(null)
+        fetchFiles(currentPath) // Recarregar a lista
+      } else {
+        toast({ title: "Erro", description: data.error || "Falha ao deletar.", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error("Erro ao deletar:", error)
+      toast({ title: "Erro", description: "Erro de rede ao deletar.", variant: "destructive" })
+    }
+  }
+
+  const handleRenameItem = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!oldNameForRename || !newNameForRename.trim()) {
+      toast({ title: "Erro", description: "Nomes não podem ser vazios.", variant: "destructive" })
+      return
+    }
+
+    const fullOldPath = currentPath ? `${currentPath}/${oldNameForRename}` : oldNameForRename
+    const fullNewPath = currentPath ? `${currentPath}/${newNameForRename}` : newNameForRename
+
+    try {
       const res = await fetch(`/api/servers/${serverId}/files/rename`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ oldPath: fullOldPath, newPath: fullNewPath }),
       })
 
       const data = await res.json()
-
       if (res.ok) {
-        toast({
-          title: "Sucesso!",
-          description: data.message,
-          variant: "default",
-        })
+        toast({ title: "Sucesso!", description: data.message, variant: "default" })
         setIsRenaming(false)
-        setRenameOldName("")
-        setRenameNewName("")
-        fetchFiles(currentPath) // Recarregar a lista de arquivos
+        setOldNameForRename("")
+        setNewNameForRename("")
+        fetchFiles(currentPath) // Recarregar a lista
       } else {
-        toast({
-          title: "Erro ao renomear",
-          description: data.error || "Ocorreu um erro inesperado.",
-          variant: "destructive",
-        })
+        toast({ title: "Erro", description: data.error || "Falha ao renomear.", variant: "destructive" })
       }
     } catch (error) {
-      console.error("Erro de rede ao renomear:", error)
-      toast({
-        title: "Erro",
-        description: "Não foi possível conectar ao servidor para renomear.",
-        variant: "destructive",
-      })
-    } finally {
-      setSaving(false)
+      console.error("Erro ao renomear:", error)
+      toast({ title: "Erro", description: "Erro de rede ao renomear.", variant: "destructive" })
     }
   }
 
-  const handleDownloadFile = (file: FileEntry) => {
-    if (file.isDirectory) {
-      toast({
-        title: "Erro",
-        description: "Não é possível baixar diretórios diretamente.",
-        variant: "destructive",
-      })
-      return
+  const handleDownloadFile = async (fileName: string) => {
+    const fullFilePath = currentPath ? `${currentPath}/${fileName}` : fileName
+    try {
+      const res = await fetch(`/api/servers/${serverId}/files/download?path=${encodeURIComponent(fullFilePath)}`)
+
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = fileName // Usa o nome original do arquivo
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        window.URL.revokeObjectURL(url)
+        toast({ title: "Sucesso!", description: "Download iniciado.", variant: "default" })
+      } else {
+        const errorData = await res.json()
+        toast({ title: "Erro", description: errorData.error || "Falha ao baixar arquivo.", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error("Erro ao baixar arquivo:", error)
+      toast({ title: "Erro", description: "Erro de rede ao baixar arquivo.", variant: "destructive" })
     }
-    const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name
-    const downloadUrl = `/api/servers/${serverId}/files/download?path=${encodeURIComponent(fullPath)}`
-    window.open(downloadUrl, "_blank")
-    toast({
-      title: "Download Iniciado",
-      description: `Baixando ${file.name}...`,
-      variant: "default",
-    })
   }
 
   return (
@@ -387,43 +406,53 @@ export default function ServerFilesPage() {
               <>
                 <Dialog open={isCreateFolderDialogOpen} onOpenChange={setIsCreateFolderDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button variant="outline" size="sm">
+                    <Button>
                       <PlusIcon className="mr-2 h-4 w-4" />
-                      Nova Pasta
+                      Criar Novo
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-[425px] bg-gray-900 text-white">
                     <DialogHeader>
-                      <DialogTitle>Criar Nova Pasta</DialogTitle>
-                      <DialogDescription className="text-gray-300">Digite o nome da nova pasta.</DialogDescription>
+                      <DialogTitle>Criar Novo Item</DialogTitle>
+                      <DialogDescription className="text-gray-300">
+                        Escolha se deseja criar uma nova pasta ou um novo arquivo.
+                      </DialogDescription>
                     </DialogHeader>
-                    <form onSubmit={handleCreateFolder} className="grid gap-4 py-4">
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="folderName" className="text-right">
-                          Nome
-                        </Label>
+                    <div className="grid gap-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="newItemName">Nome</Label>
                         <Input
-                          id="folderName"
-                          value={newFolderName}
+                          id="newItemName"
+                          value={newFolderName} // Reusing state for simplicity
                           onChange={(e) => setNewFolderName(e.target.value)}
-                          placeholder="minha-nova-pasta"
-                          className="col-span-3"
+                          placeholder="nome-do-item"
                           required
                         />
                       </div>
-                      <DialogFooter>
-                        <Button type="submit" disabled={saving}>
-                          {saving ? "Criando..." : "Criar Pasta"}
-                        </Button>
-                      </DialogFooter>
-                    </form>
+                      <div className="flex justify-end gap-2">
+                        <Button onClick={handleCreateFolder}>Criar Pasta</Button>
+                        <Button onClick={handleCreateFile}>Criar Arquivo</Button>
+                      </div>
+                    </div>
                   </DialogContent>
                 </Dialog>
-                {/* Botão de Upload - Implementação futura */}
-                <Button variant="outline" size="sm" disabled>
-                  <UploadIcon className="mr-2 h-4 w-4" />
-                  Upload
-                </Button>
+                <Dialog open={isTerminalDialogOpen} onOpenChange={setIsTerminalDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline">
+                      <TerminalIcon className="mr-2 h-4 w-4" />
+                      Terminal
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-3xl bg-gray-900 text-white p-0 border-none">
+                    {serverDetails?.dockerContainerId ? (
+                      <ServerTerminal serverId={serverId} dockerContainerId={serverDetails.dockerContainerId} />
+                    ) : (
+                      <div className="p-6 text-center text-gray-400">
+                        Carregando detalhes do servidor para o terminal...
+                      </div>
+                    )}
+                  </DialogContent>
+                </Dialog>
               </>
             )}
           </div>
@@ -476,66 +505,41 @@ export default function ServerFilesPage() {
                             <span className="sr-only">Abrir menu</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {file.isFile && (
-                            <DropdownMenuItem onClick={() => handleFileClick(file)}>
-                              <EditIcon className="mr-2 h-4 w-4" />
-                              Editar
+                        <DropdownMenuContent align="end" className="w-[160px]">
+                          <DropdownMenuItem onClick={() => handleFileClick(file)}>
+                            {file.isDirectory ? (
+                              <>
+                                <FolderIcon className="mr-2 h-4 w-4" /> Abrir
+                              </>
+                            ) : (
+                              <>
+                                <EditIcon className="mr-2 h-4 w-4" /> Editar
+                              </>
+                            )}
+                          </DropdownMenuItem>
+                          {!file.isDirectory && (
+                            <DropdownMenuItem onClick={() => handleDownloadFile(file.name)}>
+                              <DownloadIcon className="mr-2 h-4 w-4" /> Baixar
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuItem
                             onClick={() => {
-                              setRenameOldName(file.name)
-                              setRenameNewName(file.name)
+                              setOldNameForRename(file.name)
+                              setNewNameForRename(file.name)
                               setIsRenaming(true)
                             }}
                           >
-                            <EditIcon className="mr-2 h-4 w-4" />
-                            Renomear
+                            <EditIcon className="mr-2 h-4 w-4" /> Renomear
                           </DropdownMenuItem>
-                          {file.isFile && (
-                            <DropdownMenuItem onClick={() => handleDownloadFile(file)}>
-                              <DownloadIcon className="mr-2 h-4 w-4" />
-                              Baixar
-                            </DropdownMenuItem>
-                          )}
-                          <AlertDialog
-                            open={isDeleteDialogOpen && fileToDelete?.name === file.name}
-                            onOpenChange={setIsDeleteDialogOpen}
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setItemToDelete(file)
+                              setIsDeleteDialogOpen(true)
+                            }}
+                            className="text-red-600 focus:text-red-600"
                           >
-                            <AlertDialogTrigger asChild>
-                              <DropdownMenuItem
-                                onSelect={(e) => e.preventDefault()} // Prevent dropdown from closing immediately
-                                onClick={() => {
-                                  setFileToDelete(file)
-                                  setIsDeleteDialogOpen(true)
-                                }}
-                              >
-                                <Trash2Icon className="mr-2 h-4 w-4 text-red-500" />
-                                <span className="text-red-500">Excluir</span>
-                              </DropdownMenuItem>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent className="bg-gray-900 text-white">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Tem certeza?</AlertDialogTitle>
-                                <AlertDialogDescription className="text-gray-300">
-                                  Esta ação não pode ser desfeita. Isso excluirá permanentemente{" "}
-                                  <span className="font-bold text-red-400">{file.name}</span> e todo o seu conteúdo.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel className="bg-gray-700 hover:bg-gray-600 text-white">
-                                  Cancelar
-                                </AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={handleDeleteFile}
-                                  className="bg-red-600 hover:bg-red-700 text-white"
-                                >
-                                  Excluir
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                            <Trash2Icon className="mr-2 h-4 w-4" /> Excluir
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -547,35 +551,54 @@ export default function ServerFilesPage() {
         </CardContent>
       </Card>
 
-      {/* Modal de Renomear */}
+      {/* Dialog para Renomear */}
       <Dialog open={isRenaming} onOpenChange={setIsRenaming}>
         <DialogContent className="sm:max-w-[425px] bg-gray-900 text-white">
           <DialogHeader>
-            <DialogTitle>Renomear {renameOldName}</DialogTitle>
-            <DialogDescription className="text-gray-300">Digite o novo nome para o arquivo/pasta.</DialogDescription>
+            <DialogTitle>Renomear {oldNameForRename}</DialogTitle>
+            <DialogDescription className="text-gray-300">
+              Digite o novo nome para "{oldNameForRename}".
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleRenameFile} className="grid gap-4 py-4">
+          <form onSubmit={handleRenameItem} className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="newName" className="text-right">
                 Novo Nome
               </Label>
               <Input
                 id="newName"
-                value={renameNewName}
-                onChange={(e) => setRenameNewName(e.target.value)}
-                placeholder="novo-nome.txt"
+                value={newNameForRename}
+                onChange={(e) => setNewNameForRename(e.target.value)}
+                placeholder="novo-nome"
                 className="col-span-3"
                 required
               />
             </div>
-            <DialogFooter>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Renomeando..." : "Renomear"}
-              </Button>
-            </DialogFooter>
+            <div className="flex justify-end">
+              <Button type="submit">Renomear</Button>
+            </div>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* AlertDialog para Excluir */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent className="bg-gray-900 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Tem certeza?</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-300">
+              Esta ação não pode ser desfeita. Isso excluirá permanentemente{" "}
+              <span className="font-bold text-red-400">{itemToDelete?.name}</span> e todo o seu conteúdo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteItem} className="bg-red-600 hover:bg-red-700">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

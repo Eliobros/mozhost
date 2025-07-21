@@ -7,22 +7,19 @@ import { NextResponse } from "next/server"
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey"
 const CMS_API_URL = process.env.CMS_API_URL || "http://localhost:3001"
-const MOZHOST_BEARER_TOKEN = process.env.MOZHOST_BEARER_TOKEN || ""
+const CMS_AUTH_TOKEN = process.env.MOZHOST_BEARER_TOKEN || ""
 
-export async function POST(req: Request, context: any) {
+export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     await connectMongo()
-
-    const { params } = await context
     const serverId = params.id
+    const { path: newFilePath } = await req.json()
 
-    const { path: newDirPath } = await req.json()
-
-    if (!newDirPath) {
-      return NextResponse.json({ error: "O caminho do novo diretório é obrigatório." }, { status: 400 })
+    if (!newFilePath) {
+      return NextResponse.json({ error: "O caminho do novo arquivo é obrigatório." }, { status: 400 })
     }
 
-    // Autenticação do Usuário
+    // 1. Autenticação do Usuário
     const token = (await cookies()).get("token")?.value
     if (!token) {
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 })
@@ -41,49 +38,43 @@ export async function POST(req: Request, context: any) {
       return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 })
     }
 
-    // Encontrar o servidor e verificar propriedade
+    // 2. Encontrar o servidor e verificar propriedade
     const server = await Server.findOne({ _id: serverId, userId })
     if (!server) {
       return NextResponse.json({ error: "Servidor não encontrado ou você não tem permissão." }, { status: 404 })
     }
 
-    // Chamar o CMS para criar o diretório
+    // 3. Chamar o CMS para criar o arquivo
     try {
-      const cmsResponse = await fetch(`${CMS_API_URL}/files/${server._id}/directory`, {
+      const cmsResponse = await fetch(`${CMS_API_URL}/files/${server._id}/file`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${MOZHOST_BEARER_TOKEN}`,
+          Authorization: `Bearer ${CMS_AUTH_TOKEN}`,
         },
-        body: JSON.stringify({ path: newDirPath }),
+        body: JSON.stringify({ path: newFilePath }),
       })
 
       if (!cmsResponse.ok) {
-        let errorText = await cmsResponse.text()
-        let errorData
-        try {
-          errorData = JSON.parse(errorText)
-        } catch {
-          errorData = { message: errorText }
-        }
-        console.error("Erro ao chamar CMS para criar diretório:", errorData)
+        const errorData = await cmsResponse.json()
+        console.error("Erro ao chamar CMS para criar arquivo:", errorData)
         return NextResponse.json(
-          { error: `Erro ao criar diretório: ${errorData.message || "Erro desconhecido do CMS"}` },
-          { status: 500 }
+          { error: `Erro ao criar arquivo: ${errorData.message || "Erro desconhecido do CMS"}` },
+          { status: 500 },
         )
       }
 
       const cmsResult = await cmsResponse.json()
       return NextResponse.json(cmsResult, { status: 201 })
     } catch (cmsError: any) {
-      console.error("Erro de conexão com o CMS ao criar diretório:", cmsError)
+      console.error("Erro de conexão com o CMS ao criar arquivo:", cmsError)
       return NextResponse.json(
         { error: "Não foi possível conectar ao serviço de gerenciamento de arquivos." },
-        { status: 500 }
+        { status: 500 },
       )
     }
   } catch (error: any) {
-    console.error("Erro na API de criar diretório:", error)
+    console.error("Erro na API de criar arquivo:", error)
     return NextResponse.json({ error: "Erro interno do servidor: " + error.message }, { status: 500 })
   }
 }

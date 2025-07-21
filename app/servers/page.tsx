@@ -7,12 +7,12 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  Dialog,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -31,6 +31,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
+import { ServerTerminal } from "@/components/server-terminal"
 
 interface Server {
   _id: string
@@ -50,6 +51,10 @@ export default function ServersPage() {
   const [creatingServer, setCreatingServer] = useState(false)
   const [newServerName, setNewServerName] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isTerminalDialogOpen, setIsTerminalDialogOpen] = useState(false)
+  const [selectedServerForTerminal, setSelectedServerForTerminal] = useState<{ id: string; dockerId: string } | null>(
+    null,
+  )
   const router = useRouter()
   const { toast } = useToast()
 
@@ -67,6 +72,7 @@ export default function ServersPage() {
           description: errorData.error || "Não foi possível carregar seus servidores.",
           variant: "destructive",
         })
+        // If not authenticated, redirect to login
         if (res.status === 401) {
           router.push("/login")
         }
@@ -129,7 +135,7 @@ export default function ServersPage() {
     }
   }
 
-  const handleAction = async (serverId: string, action: "start" | "stop" | "restart" | "delete") => {
+  const handleAction = async (serverId: string, action: "start" | "stop" | "restart" | "delete" | "terminal") => {
     // Optimistic UI update
     setServers((prevServers) =>
       prevServers.map((server) =>
@@ -137,10 +143,24 @@ export default function ServersPage() {
       ),
     )
 
+    if (action === "terminal") {
+      const serverToOpenTerminal = servers.find((s) => s._id === serverId)
+      if (serverToOpenTerminal && serverToOpenTerminal.dockerContainerId) {
+        setSelectedServerForTerminal({ id: serverId, dockerId: serverToOpenTerminal.dockerContainerId })
+        setIsTerminalDialogOpen(true)
+      } else {
+        toast({
+          title: "Erro",
+          description: "ID do contêiner Docker não disponível para este servidor.",
+          variant: "destructive",
+        })
+      }
+      return // Importante para não continuar com o fetch para o CMS
+    }
+
     try {
-      const method = action === "delete" ? "DELETE" : "POST"
       const res = await fetch(`/api/servers/${serverId}/${action}`, {
-        method,
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
@@ -154,14 +174,14 @@ export default function ServersPage() {
           description: data.message,
           variant: "default",
         })
-        fetchServers() // Recarregar para atualizar status real
+        fetchServers() // Recarregar o status real
       } else {
         toast({
           title: `Erro ao ${action} servidor`,
           description: data.error || "Ocorreu um erro inesperado.",
           variant: "destructive",
         })
-        fetchServers() // Recarregar para reverter status otimista
+        fetchServers() // Recarregar para reverter o status otimista
       }
     } catch (error) {
       console.error(`Erro de rede ao ${action} servidor:`, error)
@@ -170,10 +190,9 @@ export default function ServersPage() {
         description: `Não foi possível conectar ao servidor para ${action} o servidor.`,
         variant: "destructive",
       })
-      fetchServers() // Recarregar para reverter status otimista
+      fetchServers() // Recarregar para reverter o status otimista
     }
   }
-
 
   return (
     <div className="flex min-h-[calc(100dvh-64px)] flex-col items-center bg-gray-100 px-4 py-8 dark:bg-gray-950">
@@ -298,7 +317,12 @@ export default function ServersPage() {
                         >
                           <Trash2Icon className="h-4 w-4" />
                         </Button>
-                        <Button variant="outline" size="icon" aria-label="Terminal">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => handleAction(server._id, "terminal")}
+                          aria-label="Terminal"
+                        >
                           <TerminalIcon className="h-4 w-4" />
                         </Button>
                         <Link href={`/servers/${server._id}/files`} passHref>
@@ -318,6 +342,19 @@ export default function ServersPage() {
           )}
         </CardContent>
       </Card>
+      {/* Dialog para o Terminal */}
+      <Dialog open={isTerminalDialogOpen} onOpenChange={setIsTerminalDialogOpen}>
+        <DialogContent className="sm:max-w-3xl bg-gray-900 text-white p-0 border-none">
+          {selectedServerForTerminal?.dockerId ? (
+            <ServerTerminal
+              serverId={selectedServerForTerminal.id}
+              dockerContainerId={selectedServerForTerminal.dockerId}
+            />
+          ) : (
+            <div className="p-6 text-center text-gray-400">Carregando detalhes do servidor para o terminal...</div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
