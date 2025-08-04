@@ -13,7 +13,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   try {
     await connectMongo()
     const serverId = params.id
-    const { command } = await req.json()
+    const { command, currentDirectory } = await req.json()
 
     if (!command) {
       return NextResponse.json({ error: "Comando é obrigatório." }, { status: 400 })
@@ -56,7 +56,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           "Content-Type": "application/json",
           Authorization: `Bearer ${CMS_AUTH_TOKEN}`,
         },
-        body: JSON.stringify({ command }),
+        body: JSON.stringify({ 
+          command,
+          currentDirectory: currentDirectory || "/"
+        }),
       })
 
       if (!cmsResponse.ok) {
