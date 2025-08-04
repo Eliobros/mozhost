@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # Aplicação Next.js principal
+  mozhost-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=${MONGODB_URI}
+      - JWT_SECRET=${JWT_SECRET}
+      - CMS_API_URL=${CMS_API_URL}
+      - MOZHOST_BEARER_TOKEN=${MOZHOST_BEARER_TOKEN}
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASS=${EMAIL_PASS}
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+    networks:
+      - mozhost-network
+
+  # MongoDB para desenvolvimento (opcional - você pode usar MongoDB Atlas)
+  mongodb:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-password}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE:-mozhost}
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    restart: unless-stopped
+    networks:
+      - mozhost-network
+
+  # CMS (Container Management Service) - exemplo básico
+  # Você precisará implementar este serviço separadamente
+  cms:
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - MOZHOST_BEARER_TOKEN=${MOZHOST_BEARER_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./cms:/app
+      - cms_data:/app/data
+    command: ["node", "server.js"]
+    restart: unless-stopped
+    networks:
+      - mozhost-network
+    privileged: true  # Necessário para acessar Docker socket
+
+  # Nginx como proxy reverso (opcional)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - mozhost-app
+    restart: unless-stopped
+    networks:
+      - mozhost-network
+
+volumes:
+  mongodb_data:
+    driver: local
+  cms_data:
+    driver: local
+
+networks:
+  mozhost-network:
+    driver: bridge

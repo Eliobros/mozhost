@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # Aplicação Next.js para desenvolvimento
+  mozhost-app-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:password@mongodb:27017/mozhost?authSource=admin}
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-key}
+      - CMS_API_URL=${CMS_API_URL:-http://cms:3001}
+      - MOZHOST_BEARER_TOKEN=${MOZHOST_BEARER_TOKEN:-dev-token}
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASS=${EMAIL_PASS}
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+    networks:
+      - mozhost-dev-network
+    command: ["npm", "run", "dev"]
+
+  # MongoDB para desenvolvimento
+  mongodb:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-password}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE:-mozhost}
+    volumes:
+      - mongodb_dev_data:/data/db
+    restart: unless-stopped
+    networks:
+      - mozhost-dev-network
+
+  # CMS para desenvolvimento
+  cms-dev:
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - MOZHOST_BEARER_TOKEN=${MOZHOST_BEARER_TOKEN:-dev-token}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./cms:/app
+      - cms_dev_data:/app/data
+    command: ["npm", "run", "dev"]
+    restart: unless-stopped
+    networks:
+      - mozhost-dev-network
+    privileged: true
+
+volumes:
+  mongodb_dev_data:
+    driver: local
+  cms_dev_data:
+    driver: local
+
+networks:
+  mozhost-dev-network:
+    driver: bridge
