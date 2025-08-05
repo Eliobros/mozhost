@@ -13,6 +13,39 @@ Este documento explica as melhorias implementadas no terminal do MozHost para re
 
 ### ✅ **Soluções Implementadas:**
 
+## 🔧 Correções de Erros
+
+### ❌ **Problema Original:**
+```
+📦 /687e3ab2f010505cf8c5f51a/home$ ls
+6sh: 1: cd: não é possível fazer cd para /687e3ab2f010505cf8c5f51a/home
+```
+
+### ✅ **Correções Aplicadas:**
+
+1. **Verificação de Diretório**
+   - Antes de executar `cd`, verifica se o diretório existe
+   - Mostra erro claro se o diretório não for encontrado
+   - Não atualiza o estado se o diretório for inválido
+
+2. **Tratamento de Erros Melhorado**
+   - Detecta erros de "diretório não encontrado"
+   - Reseta automaticamente para diretório raiz se necessário
+   - Mostra mensagens de erro em vermelho
+
+3. **Indicador de Status**
+   - Mostra se o diretório atual é válido
+   - Ícone verde para diretório válido
+   - Ícone vermelho para diretório inválido
+
+4. **Botão Reset**
+   - Permite voltar ao diretório raiz rapidamente
+   - Útil quando o terminal fica em estado inconsistente
+
+5. **Inicialização Robusta**
+   - Verifica o diretório inicial ao abrir o terminal
+   - Fallback para diretório raiz se houver problemas
+
 ## 🔧 Funcionalidades do Terminal Melhorado
 
 ### 1. **Sessão Persistente**
@@ -157,21 +190,29 @@ $ ↑  # Volta para "ls"
 
 ### Problemas Comuns:
 
-1. **Comando não funciona**
+1. **Erro "cd: não é possível fazer cd"**
+   - O diretório não existe no contêiner
+   - Use o botão "Reset" para voltar à raiz
+   - Verifique se o caminho está correto
+   - Use `pwd` para ver o diretório atual
+
+2. **Comando não funciona**
    - Verifique se está no diretório correto
    - Use `pwd` para confirmar localização
+   - O indicador de status mostra se o diretório é válido
 
-2. **Histórico não funciona**
+3. **Histórico não funciona**
    - Use setas ↑↓ no input
    - Histórico é por sessão
 
-3. **Cores não aparecem**
+4. **Cores não aparecem**
    - Verifique se o terminal suporta cores
    - Comandos como `ls --color=auto` podem ajudar
 
-4. **Diretório não muda**
+5. **Diretório não muda**
    - Use `cd` com caminho completo
    - Verifique permissões
+   - Use o botão "Reset" se necessário
 
 ## 🚀 Próximas Melhorias
 

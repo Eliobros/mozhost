@@ -11,6 +11,7 @@ import { TerminalShortcuts } from "./terminal-shortcuts"
 import { CurrentDirectory } from "./current-directory"
 import { TerminalHelp } from "./terminal-help"
 import { TerminalOutput } from "./terminal-output"
+import { DirectoryStatus } from "./directory-status"
 
 interface ServerTerminalProps {
   serverId: string
@@ -38,8 +39,49 @@ export function ServerTerminal({ serverId, dockerContainerId }: ServerTerminalPr
 
   // Inicializar terminal com informações do diretório atual
   useEffect(() => {
-    executeCommand("pwd", true) // Executar pwd silenciosamente para obter diretório inicial
-  }, [])
+    // Inicializar com diretório raiz e verificar se existe
+    const initializeTerminal = async () => {
+      try {
+        // Primeiro, verificar se estamos no diretório raiz
+        const res = await fetch(`/api/servers/${serverId}/terminal`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ 
+            command: "pwd", 
+            dockerContainerId,
+            currentDirectory: "/" 
+          }),
+        })
+        
+        const data = await res.json()
+        
+        if (res.ok && data.stdout) {
+          const initialDir = data.stdout.trim()
+          setSession(prev => ({
+            ...prev,
+            currentDirectory: initialDir
+          }))
+        } else {
+          // Se falhar, usar diretório raiz
+          setSession(prev => ({
+            ...prev,
+            currentDirectory: "/"
+          }))
+        }
+      } catch (error) {
+        console.error("Erro ao inicializar terminal:", error)
+        // Em caso de erro, usar diretório raiz
+        setSession(prev => ({
+          ...prev,
+          currentDirectory: "/"
+        }))
+      }
+    }
+    
+    initializeTerminal()
+  }, [serverId, dockerContainerId])
 
   const executeCommand = async (commandToExecute: string, silent: boolean = false) => {
     if (!commandToExecute.trim() || loading) return
@@ -54,46 +96,70 @@ export function ServerTerminal({ serverId, dockerContainerId }: ServerTerminalPr
       // Preparar comando com contexto do diretório atual
       let fullCommand = commandToExecute
       
-      // Se o comando for cd, atualizar o diretório localmente primeiro
+      // Se o comando for cd, verificar se o diretório existe primeiro
       if (commandToExecute.startsWith("cd ")) {
         const newDir = commandToExecute.substring(3).trim()
+        let targetDirectory = ""
+        
         if (newDir === "..") {
           const parts = session.currentDirectory.split("/").filter(Boolean)
           parts.pop()
-          setSession(prev => ({
-            ...prev,
-            currentDirectory: "/" + parts.join("/")
-          }))
+          targetDirectory = "/" + parts.join("/")
         } else if (newDir.startsWith("/")) {
-          setSession(prev => ({
-            ...prev,
-            currentDirectory: newDir
-          }))
+          targetDirectory = newDir
         } else {
-          const newPath = session.currentDirectory.endsWith("/") 
+          targetDirectory = session.currentDirectory.endsWith("/") 
             ? session.currentDirectory + newDir
             : session.currentDirectory + "/" + newDir
-          setSession(prev => ({
-            ...prev,
-            currentDirectory: newPath
-          }))
         }
         
-        if (!silent) {
-          setOutput((prev) => [...prev, ""])
-          setLoading(false)
-          return
+        // Verificar se o diretório existe antes de mudar
+        const checkDirCommand = `test -d "${targetDirectory}" && echo "exists" || echo "not_exists"`
+        
+        const checkRes = await fetch(`/api/servers/${serverId}/terminal`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ 
+            command: checkDirCommand, 
+            dockerContainerId,
+            currentDirectory: "/" 
+          }),
+        })
+        
+        const checkData = await checkRes.json()
+        
+        if (checkRes.ok && checkData.stdout?.includes("exists")) {
+          // Diretório existe, atualizar estado
+          setSession(prev => ({
+            ...prev,
+            currentDirectory: targetDirectory
+          }))
+          
+          if (!silent) {
+            setOutput((prev) => [...prev, ""])
+            setLoading(false)
+            return
+          }
+        } else {
+          // Diretório não existe, mostrar erro
+          if (!silent) {
+            setOutput((prev) => [...prev, `\x1b[31mcd: não é possível fazer cd para ${newDir}: Diretório não encontrado\x1b[0m`])
+            setLoading(false)
+            return
+          }
         }
       }
 
-      // Para comandos que precisam do contexto do diretório
+      // Para comandos que precisam do contexto do diretório, usar diretório atual
       if (commandToExecute === "ls" || commandToExecute === "ls -la" || commandToExecute === "dir") {
-        fullCommand = `cd ${session.currentDirectory} && ${commandToExecute}`
+        fullCommand = `cd "${session.currentDirectory}" 2>/dev/null && ${commandToExecute} || echo "Diretório não encontrado"`
       } else if (commandToExecute === "pwd") {
-        fullCommand = `cd ${session.currentDirectory} && pwd`
+        fullCommand = `cd "${session.currentDirectory}" 2>/dev/null && pwd || echo "/"`
       } else if (!commandToExecute.startsWith("cd ")) {
         // Para outros comandos, executar no diretório atual
-        fullCommand = `cd ${session.currentDirectory} && ${commandToExecute}`
+        fullCommand = `cd "${session.currentDirectory}" 2>/dev/null && ${commandToExecute} || echo "Erro: Diretório não encontrado"`
       }
 
       const res = await fetch(`/api/servers/${serverId}/terminal`, {
@@ -117,7 +183,7 @@ export function ServerTerminal({ serverId, dockerContainerId }: ServerTerminalPr
         // Processar saída especial para pwd
         if (commandToExecute === "pwd" && !silent) {
           const pwdOutput = outputText.trim()
-          if (pwdOutput) {
+          if (pwdOutput && !pwdOutput.includes("Erro:")) {
             setSession(prev => ({
               ...prev,
               currentDirectory: pwdOutput
@@ -128,7 +194,19 @@ export function ServerTerminal({ serverId, dockerContainerId }: ServerTerminalPr
         // Adicionar saída formatada
         if (!silent) {
           const newOutput = []
-          if (outputText) newOutput.push(outputText)
+          
+          // Verificar se há erro de diretório não encontrado
+          if (outputText.includes("Diretório não encontrado") || outputText.includes("not found")) {
+            newOutput.push(`\x1b[31mErro: Diretório '${session.currentDirectory}' não encontrado\x1b[0m`)
+            // Resetar para diretório raiz se o diretório atual não existe
+            setSession(prev => ({
+              ...prev,
+              currentDirectory: "/"
+            }))
+          } else if (outputText) {
+            newOutput.push(outputText)
+          }
+          
           if (errorText) newOutput.push(`\x1b[31m${errorText}\x1b[0m`) // Vermelho para erros
           
           setOutput((prev) => [...prev, ...newOutput])
@@ -141,7 +219,7 @@ export function ServerTerminal({ serverId, dockerContainerId }: ServerTerminalPr
           }))
         } else if (commandToExecute === "pwd") {
           const pwdOutput = outputText.trim()
-          if (pwdOutput) {
+          if (pwdOutput && !pwdOutput.includes("Erro:")) {
             setSession(prev => ({
               ...prev,
               currentDirectory: pwdOutput
@@ -216,6 +294,14 @@ export function ServerTerminal({ serverId, dockerContainerId }: ServerTerminalPr
     focusInput()
   }
 
+  const resetToRoot = () => {
+    setSession(prev => ({
+      ...prev,
+      currentDirectory: "/"
+    }))
+    setOutput((prev) => [...prev, "\n$ cd /"])
+  }
+
   // Scroll to bottom of output whenever it changes
   useEffect(() => {
     if (outputRef.current) {
@@ -242,6 +328,11 @@ export function ServerTerminal({ serverId, dockerContainerId }: ServerTerminalPr
           </div>
           <div className="flex items-center gap-2">
             <CurrentDirectory path={session.currentDirectory} />
+            <DirectoryStatus 
+              currentDirectory={session.currentDirectory}
+              serverId={serverId}
+              dockerContainerId={dockerContainerId}
+            />
           </div>
         </div>
       </CardHeader>
@@ -252,6 +343,14 @@ export function ServerTerminal({ serverId, dockerContainerId }: ServerTerminalPr
           </div>
           <div className="flex gap-2">
             <TerminalHelp onCommand={handleHelpCommand} />
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={resetToRoot}
+              className="text-xs h-7 px-2"
+            >
+              Reset
+            </Button>
             <Button 
               variant="outline" 
               size="sm" 
