@@ -2,47 +2,45 @@ import type React from "react"
 import type { Metadata } from "next"
 import "./globals.css"
 import Navbar from "@/components/navbar"
-import { Toaster } from "@/components/ui/toaster"
+import Footer from "@/components/footer"
 import { Inter } from "next/font/google"
-import { ThemeProvider } from "@/components/theme-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "MozHost",
+  title: "ANAMOLA - Partido Político",
   icons: {
-    icon: "/mozhost.png",
-    apple: "/mozhost.png",
-    shortcut: "/mozhost.png",
+    icon: "/favicon.ico",
+    apple: "/favicon.ico",
   },
-  keywords: ["Next.js", "Mongoose", "MongoDB", "React", "TypeScript"],
+  keywords: ["ANAMOLA", "Partido Político", "Moçambique", "Democracia", "Desenvolvimento"],
   authors: [
-    { name: "MozHost Team",
-       url: "https://mozhost.com"
+    { name: "ANAMOLA",
+       url: "https://anamola.org.mz"
        }
       ],
-  creator: "MozHost",
+  creator: "ANAMOLA",
   openGraph: {
-    title: "MozHost",
-    description: "Hospedagem de sites e aplicações com Next.js e MongoDB",
-    url: "https://mozhost.com",
-    siteName: "MozHost",
+    title: "ANAMOLA - Partido Político",
+    description: "Partido político comprometido com o desenvolvimento de Moçambique",
+    url: "https://anamola.org.mz",
+    siteName: "ANAMOLA",
     images: [
       {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "MozHost - Hospedagem de Bots e APIs",
+        alt: "ANAMOLA - Partido Político",
       },
     ],
-    locale: "pt-BR",
+    locale: "pt-MZ",
     type: "website",
   },
   robots: {
     index: true,
     follow: true,
   },
-  description: "Hospedagem de sites e aplicações com Next.js e MongoDB",
+  description: "Partido político comprometido com o desenvolvimento de Moçambique, promovendo democracia, justiça social e progresso para todos os moçambicanos.",
 }
 
 export default function RootLayout({
@@ -51,13 +49,13 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="pt-MZ">
       <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <Navbar />
+        <Navbar />
+        <main className="pt-16">
           {children}
-          <Toaster />
-        </ThemeProvider>
+        </main>
+        <Footer />
       </body>
     </html>
   )
